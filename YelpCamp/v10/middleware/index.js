@@ -1,62 +1,38 @@
-// all the middleware goes here
-var Campground = require("../models/campground");
-var Comment = require("../models/comment");
-var middlewareObj = {};
+const mongoose = require('mongoose');
+const Campground = require('../models/campground');
+const Comment = require('../models/comment');
+const { redirectBack } = require('../lib/http');
 
-
-middlewareObj.checkCampgroundOwnership = function(req, res, next){
-    if(req.isAuthenticated()){
-        Campground.findById(req.params.id, function(err, foundCampground){
-            if(err){
-                req.flash("error","Campground not found")
-                res.redirect("back");
-            }else{
-                //does user own the campground?
-                if(foundCampground.author.id.equals(req.user._id)){
-                    next();
-                }else{
-                    req.flash("error", "You don't have permission to do that");
-                    res.redirect("back");
-                }
-                
-            }
-        });
-    }else{
-        req.flash("error", "you need to be logged in to da that");
-        res.redirect("back")
-    }
-
-};
-
-middlewareObj.checkCommentOwnership = function(req, res, next){
-    if(req.isAuthenticated()){
-        Comment.findById(req.params.comment_id, function(err, foundComment){
-            if(err){
-                res.redirect("back");
-            }else{
-                //does user own the comment?
-                if(foundComment.author.id.equals(req.user._id)){
-                    next();
-                }else{
-                    req.flash("error","You don't have permission to do that");
-                    res.redirect("back");
-                }
-                
-            }
-        });
-    }else{
-        req.flash("error","You need to be logged in to da that")
-        res.redirect("back");
-    }
-};
-
-middlewareObj.isLoggedIn = function(req, res, next){
-    if(req.isAuthenticated()){
-        return next();
-    }
-    req.flash("error","You need to be logged in to do that");
-    res.redirect("/login");
-
+function isLoggedIn(req, res, next) {
+  if (req.isAuthenticated()) return next();
+  req.flash('error', 'You need to be logged in to do that');
+  return res.redirect('/login');
 }
 
-module.exports = middlewareObj;
+/** Loads a document by id into res.locals[key] and checks the logged-in user owns it. */
+function checkOwnership(Model, param, key) {
+  return async (req, res, next) => {
+    if (!req.isAuthenticated()) {
+      req.flash('error', 'You need to be logged in to do that');
+      return res.redirect('/login');
+    }
+    const id = req.params[param];
+    const doc = mongoose.isValidObjectId(id) ? await Model.findById(id) : null;
+    if (!doc) {
+      req.flash('error', 'Not found');
+      return redirectBack(req, res);
+    }
+    if (!doc.author.id || !doc.author.id.equals(req.user._id)) {
+      req.flash('error', "You don't have permission to do that");
+      return redirectBack(req, res);
+    }
+    res.locals[key] = doc;
+    return next();
+  };
+}
+
+module.exports = {
+  isLoggedIn,
+  checkCampgroundOwnership: checkOwnership(Campground, 'id', 'campground'),
+  checkCommentOwnership: checkOwnership(Comment, 'comment_id', 'comment'),
+};

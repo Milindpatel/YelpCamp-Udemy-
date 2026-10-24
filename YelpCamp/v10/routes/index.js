@@ -1,72 +1,51 @@
-var express = require("express");
-var router = express.Router();
-var passport = require("passport");
-var User = require("../models/user");
+const express = require('express');
+const passport = require('passport');
+const User = require('../models/user');
 
+const router = express.Router();
 
-//root route
-router.get("/", function(req,res){
-    res.render("landing");
+router.get('/', (req, res) => res.render('landing'));
+
+router.get('/register', (req, res) => res.render('register'));
+
+router.post('/register', async (req, res, next) => {
+  const { username, password } = req.body;
+  if (!username || !password || password.length < 8) {
+    req.flash('error', 'Choose a username and a password of at least 8 characters');
+    return res.redirect('/register');
+  }
+  let user;
+  try {
+    user = await User.register(new User({ username }), password);
+  } catch (err) {
+    req.flash('error', err.message);
+    return res.redirect('/register');
+  }
+  req.login(user, (err) => {
+    if (err) return next(err);
+    req.flash('success', `Welcome to YelpCamp ${user.username}`);
+    return res.redirect('/campgrounds');
+  });
 });
 
+router.get('/login', (req, res) => res.render('login'));
 
+router.post(
+  '/login',
+  passport.authenticate('local', {
+    successRedirect: '/campgrounds',
+    failureRedirect: '/login',
+    failureFlash: 'Invalid username or password',
+  }),
+);
 
-
-
-// ========
-// Auth Routes
-// ========
-
-// show the register form
-router.get("/register", function(req, res){
-    res.render("register");
+// POST so other sites can't log users out with a link or image.
+router.post('/logout', (req, res, next) => {
+  req.logout((err) => {
+    if (err) return next(err);
+    req.flash('success', 'Logged you out!');
+    return res.redirect('/campgrounds');
+  });
 });
-
-//handle sign up logic
-router.post("/register", function(req, res){
-    var newUser = new User({username: req.body.username});
-    User.register(newUser, req.body.password, function(err, user){
-        if(err){
-            // console.log(err);
-           req.flash("error", err.message);
-            return res.render("register");
-        }
-        passport.authenticate("local")(req, res, function(){
-            req.flash("success", "Welcome to YelpCamp " + user.username);
-            res.redirect("/campgrounds");    
-        });
-    });
-});
-
-
-//SHOW LOGIN FORM
-router.get("/login", function(req,res){
-    res.render("login", {});
-});
-
-//HANDLING LOGIN LOGIC
-router.post("/login",passport.authenticate("local",
-    {
-        successRedirect: "/campgrounds",
-        failureRedirect: "/login"
-    }), function(req,res){
-});
-
-
-//logout route
-router.get("/logout", function(req, res){
-   req.logout();
-   req.flash("success", "Logged you out!");
-   res.redirect("/campgrounds");
-});
-
-
-// //middleware
-// function isLoggedIn(req, res, next){
-//     if(req.isAuthenticated()){
-//         return next();
-//     }
-//     res.redirect("/login");
-// }
 
 module.exports = router;

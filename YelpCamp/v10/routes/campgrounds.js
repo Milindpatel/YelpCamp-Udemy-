@@ -1,102 +1,69 @@
-var express = require("express");
-var router = express.Router();
-var Campground = require("../models/campground");
-var Comment = require("../models/comment");
-var middleware = require("../middleware");
+const express = require('express');
+const mongoose = require('mongoose');
+const Campground = require('../models/campground');
+const Comment = require('../models/comment');
+const middleware = require('../middleware');
+const { pick } = require('../lib/http');
 
-//INDEX - show all campgrounds
-router.get("/", function(req,res){
-    // Get all the campgrounds from DB
-    Campground.find({}, function(err, allCampgrounds){
-        if(err){
-            console.log(err);
-        }else{
-            res.render("campgrounds/index", {campgrounds:allCampgrounds, currentUser: req.user});
-        }
-    });
-        
+const router = express.Router();
+const FIELDS = ['name', 'image', 'description'];
+
+// INDEX
+router.get('/', async (req, res) => {
+  const campgrounds = await Campground.find({}).sort({ _id: -1 });
+  res.render('campgrounds/index', { campgrounds });
 });
 
-router.post("/", middleware.isLoggedIn, function(req, res){
-   
-    //get data from form and add to campgrounds 
-    var name = req.body.name;
-    var image = req.body.image;
-    var desc = req.body.description;
-    var author = {
-        id: req.user._id,
-        username: req.user.username
-    };
-    var newCampground = {name: name, image: image, description: desc, author: author};
-    //Create the new campground and save to DB
-    Campground.create(newCampground, function(err, newlyCreated){
-        if(err){
-            console.log(err);
-        }else{
-            // redirect back to campgrounds page
-            res.redirect("/campgrounds");
-        }
-    });
-    
+// CREATE
+router.post('/', middleware.isLoggedIn, async (req, res) => {
+  const data = pick(req.body.campground || req.body, FIELDS);
+  try {
+    await Campground.create({ ...data, author: { id: req.user._id, username: req.user.username } });
+  } catch (err) {
+    if (!(err instanceof mongoose.Error.ValidationError)) throw err;
+    req.flash('error', err.message);
+    return res.redirect('/campgrounds/new');
+  }
+  req.flash('success', 'Campground created');
+  res.redirect('/campgrounds');
 });
 
-router.get("/new", middleware.isLoggedIn, function(req, res) {
-    res.render("campgrounds/new");
+// NEW
+router.get('/new', middleware.isLoggedIn, (req, res) => res.render('campgrounds/new'));
+
+// SHOW
+router.get('/:id', async (req, res, next) => {
+  const campground = mongoose.isValidObjectId(req.params.id)
+    ? await Campground.findById(req.params.id).populate('comments')
+    : null;
+  if (!campground) return next();
+  res.render('campgrounds/show', { campground });
 });
 
-//SHOW - shows more info about one campground
-router.get("/:id",  function(req,res){
-    //find the campgrounds with provided ID
-    Campground.findById(req.params.id).populate("comments").exec (function(err, foundCampground){
-        if(err){
-            console.log(err);
-        }else{
-            console.log(foundCampground);
-            //render show template with that campground
-            res.render("campgrounds/show", {campground: foundCampground});
-        }
-    });
-    
+// EDIT
+router.get('/:id/edit', middleware.checkCampgroundOwnership, (req, res) => res.render('campgrounds/edit'));
+
+// UPDATE (only name/image/description can change; never the author)
+router.put('/:id', middleware.checkCampgroundOwnership, async (req, res) => {
+  const campground = res.locals.campground;
+  campground.set(pick(req.body.campground, FIELDS));
+  try {
+    await campground.save();
+  } catch (err) {
+    if (!(err instanceof mongoose.Error.ValidationError)) throw err;
+    req.flash('error', err.message);
+    return res.redirect(`/campgrounds/${campground._id}/edit`);
+  }
+  res.redirect(`/campgrounds/${campground._id}`);
 });
 
-//EDIT Campground Route
-router.get("/:id/edit", middleware.checkCampgroundOwnership, function(req, res){
-    //is user logged in?
-        Campground.findById(req.params.id, function(err, foundCampground){
-            res.render("campgrounds/edit", {campground: foundCampground} );
-        });
-    
-}); 
-
-
-//Update Campground Route
-router.put("/:id", middleware.checkCampgroundOwnership, function(req, res){
-    // find and update the correct campground
-    Campground.findByIdAndUpdate(req.params.id, req.body.campground, function(err, updatedCampground){
-       if(err){
-           res.redirect("/campgrounds");
-       } else {
-           //redirect somewhere(show page)
-           res.redirect("/campgrounds/" + req.params.id);
-       }
-    });
+// DESTROY (also removes its comments)
+router.delete('/:id', middleware.checkCampgroundOwnership, async (req, res) => {
+  const campground = res.locals.campground;
+  await Comment.deleteMany({ _id: { $in: campground.comments } });
+  await campground.deleteOne();
+  req.flash('success', 'Campground deleted');
+  res.redirect('/campgrounds');
 });
-
-
-//Destory Campground Route
-router.delete("/:id", middleware.checkCampgroundOwnership, function(req, res){
-    Campground.findByIdAndRemove(req.params.id, function(err){
-       if(err){
-           res.redirect("/campgrounds");
-       } else{
-           res.redirect("/campgrounds");
-       }
-    });
-})
-
-
-
-
-
 
 module.exports = router;

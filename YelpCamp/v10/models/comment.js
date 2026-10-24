@@ -1,14 +1,11 @@
-var mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-var commentSchema = mongoose.Schema({
-    text: String,
-    author: {
-        id: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User"
-        },
-        username: String
-    }
+const commentSchema = new mongoose.Schema({
+  text: { type: String, required: true, trim: true, maxlength: 2000 },
+  author: {
+    id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    username: String,
+  },
 });
 
-module.exports = mongoose.model("Comment", commentSchema);
+module.exports = mongoose.models.Comment || mongoose.model('Comment', commentSchema);
